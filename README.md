@@ -1,3 +1,108 @@
+# jarjar工具
+
+jarjar工具也是一个很方便的打包java代码的工具，可以使用ant任务的方式，也可以单独在命令行下使用。 项目主页在：https://github.com/tekintian/jarjar
+
+为什么要使用jarjar
+------
+
+- 有没有碰到这么一种情况，在开发项目的时候，为了避免“JAR hell”，为了更好的管理项目依赖，需要将别的java项目的jar包重新打包到我们自己现有的项目中来，比如把包org.apache.commons.logging打包成repackaged.org.apache.commons，你会怎么办？手工改显然费时费力，不仅要改变每个类的package声明，还要改变自己项目中所有使用了commons-logging类的代码。那么jarjar就是为了干这件事而专门定做的工具。
+
+- 代码重新打包工具jarjar可以帮助你将其它用到的java库打包并嵌入到你自己的项目jar包中。这样做的原因有:
+
+- 当你发布项目的时候，把用到的库打包进现有项目jar包，可以让发布的这个jar包不比依赖于其它项目的jar包;
+- 当你所用到的java库升级了以后，它所新发布的jar包可能和你现存的项目不匹配，为了保持项目的代码稳定性，你可以把编写代码时所用到的依赖jar包，全部打包进现在的项目jar包，以避免出现这个问题。
+
+	jarjar可以通过Ant任务的方式使用，也可以单独地在命令行下使用。打包代码时，如果你要重命名某些依赖包的名字的时候，jarjar会调用字节码转换(通过ASM)来更新代码，并自动做好其他工作。
+
+
+以Ant任务的形式使用jarjar
+------
+
+我们现存的Ant任务里可以用jar任务来打包代码，比如:
+```xml
+<target name="jar" depends="compile">
+	<jar jarfile="dist/example.jar">
+		<fileset dir="build/main"/>
+	</jar>
+</target>
+```
+
+为了使用jarjar工具，我们创建一个叫jarjar的任务，由于JarJarTask是Ant标准任务Jar的子类，所以如果你不需要使用jarjar的特有功能的话，完全可以像这样调用jarjar工具:
+```xml
+<target name="jar" depends="compile">
+	<taskdef name="jarjar" classname="com.tonicsystems.jarjar.JarJarTask" classpath="lib/jarjar.jar"/>
+	<jarjar jarfile="dist/example.jar">
+		<fileset dir="build/main"/>
+	</jarjar>
+</target>
+```
+就像标准的”jar”任务一样，可以通过”zipfileset”元素来包含其它jar包。但是仅仅包含其它jar包并不能让你远离“jar包陷阱”,因为你所依赖的jar包中的类名还是没有改变，仍然有可能和其它版本的jar包里的类名相同，产生冲突。
+为了重命名类名，JarJarTask引入了一个新元素”rule”。”rule”包含了”pattern”属性，你可以通过这个属性，使用通配符来选择哪些类需要重命名，通过”result”属性可以设置如何给选中的类重命名。
+
+在本例中我们希望引入一个叫jaxen.jar的库。并将所有以”org.jaxen”开头的类重命名以”org.example.jaxen”开头:
+```xml
+<target name="jar" depends="compile">
+<taskdef name="jarjar" classname="com.tonicsystems.jarjar.JarJarTask" classpath="lib/jarjar.jar"/>
+<jarjar jarfile="dist/example.jar">
+<fileset dir="build/main"/>
+<zipfileset src="lib/jaxen.jar"/>
+<rule pattern="org.jaxen.**" result="org.example.@1"/>
+</jarjar>
+</target>
+```
+通配符**表示匹配循环所有的子包，如果你只希望匹配一个子包的话，可以使用*。
+@1表示第一个**所匹配到的内容，一次类推，@2表示从左到右第二个所匹配到的*或**。@0是特殊的标志，它代表整个匹配到的类的全名。
+
+
+
+
+命令行下单独使用jarjar
+-----
+
+java -jar jarjar.jar [help]
+
+打印帮助信息。
+
+java -jar jarjar.jar strings 
+打印类路径classpath下的字符串信息，如果类中有debug信息的话，会打印出所在行的行号。
+比如java -jar jarjar.jar strings servlet-api.jar会打印:
+
+```text
+javax.servlet.http.HttpServletRequest "BASIC" "FORM" "CLIENT_CERT" "DIGEST" 
+javax.servlet.http.HttpUtils "javax.servlet.http.LocalStrings" 88: "javax.servlet.http.LocalStrings" 339: "://" 341: "http" 341: "https" 145: "&" 238: "err.io.short_read" 254: "8859_1"
+```
+
+
+
+java -jar jarjar.jar find []
+
+打印出类路径下java类对类路径下类的依赖，如果省略了，那么用代替。只能取class或者jar，前者代表打印各个类之间的依赖情况，后者会打印包对包之间的依赖。
+
+java -jar jarjar.jar process 
+
+将按照文件所指定的方法转换到里，中原有的类将被删除。
+
+
+- 类路径Classpath的格式
+类路径classpath是用逗号或分号(具体是那种分隔符依赖操作系统)隔开的一组目录，jar包或者zip包。
+
+- Rules规则文件格式
+Rules规则文件是实际上一种文本文件，每一行代表一条规则Rule，行首和行末的空格会被忽略掉，有三种不同样式的Rule写法:
+```xml
+rule <pattern> <result>
+
+zap <pattern>
+
+keep <pattern>
+
+```
+第一个是用来设置jarjar如何重命名类文件的。所有类，只要它引用到了需要改变名字的类，其相关内容就会被自动同步改变，保证不会出现引用错误。如果一个类匹配了不同的rule，只有第一个匹配的rule会生效。 和的设定同上面讲过的Ant中一样。
+zap规则中 所匹配的类将会不加入生成的新jar包。
+
+
+English description
+-------
+
 Jar Jar Links is a utility that makes it easy to repackage Java
 libraries and embed them into your own distribution. This is useful
 for two reasons:
@@ -185,4 +290,23 @@ The keep rule marks all matched classes as "roots". If any keep rules
 are defined all classes which are not reachable from the roots via
 dependency analysis are discarded when writing the output jar. This
 is the last step in the process, after renaming and zapping.
+
+
+Other resources
+------
+## application_plugin for gradle:
+http://www.gradle.org/docs/current/userguide/application_plugin.html
+just add this lines to build.gradle:
+
+apply plugin: ‘application’
+mainClassName = “com.mkyong.DateUtils”
+
+and then run gradle task:
+
+$ gradle distZip
+
+It’s better, because:
+1. This is plugin and your build.gradle much cleaner.
+2. This distribute only runtime deps, not compile and test.
+3. This will be maintained by plugin contributers.
 
