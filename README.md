@@ -8,6 +8,10 @@ You can avoid problems where your library depends on a specific
 version of a library, which may conflict with the dependencies of
 another library.
 
+Respository
+https://mvnrepository.com/artifact/org.anarres.jarjar/jarjar-gradle
+
+
 How does it work?
 
 Jar Jar Links includes an Ant task that extends the built-in jar
